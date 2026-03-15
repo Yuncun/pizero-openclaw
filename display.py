@@ -127,6 +127,58 @@ def _wifi_connected() -> bool:
         return False
 
 
+
+def _wifi_ssid() -> str | None:
+    """Get current WiFi SSID."""
+    try:
+        with open("/proc/net/wireless") as f:
+            lines = f.readlines()
+        if len(lines) < 3:
+            return None
+    except OSError:
+        return None
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["iwgetid", "-r"], capture_output=True, text=True, timeout=2,
+        )
+        ssid = result.stdout.strip()
+        return ssid if ssid else None
+    except Exception:
+        return None
+
+
+def _wifi_signal() -> int | None:
+    """Get WiFi signal quality (0-100)."""
+    try:
+        with open("/proc/net/wireless") as f:
+            lines = f.readlines()
+        if len(lines) < 3:
+            return None
+        # Third line has the stats: wlan0: status link level noise
+        parts = lines[2].split()
+        if len(parts) >= 3:
+            # link quality is typically 0-70
+            link = float(parts[2].rstrip('.'))
+            return min(100, int(link * 100 / 70))
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _wifi_ip() -> str | None:
+    """Get wlan0 IP address."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=2,
+        )
+        ips = result.stdout.strip().split()
+        return ips[0] if ips else None
+    except Exception:
+        return None
+
+
 def _read_pisugar_battery() -> tuple[int | None, str | None]:
     """Read battery from PiSugar server (Unix socket). Returns (pct, status) or (None, None)."""
     if not os.path.exists(PISUGAR_SOCKET):
@@ -469,6 +521,8 @@ class Display:
         self._draw_lock = threading.Lock()
         self._cached_paragraphs: list[str] = []
         self._cached_wrapped: list[list[str]] = []
+        self._page_offset: int = 0
+        self._total_lines: list[str] = []
         self._sprite_frames = _generate_sprite_frames()
 
         self.clear()
@@ -699,21 +753,57 @@ class Display:
         self._response_buf = ""
         self._cached_paragraphs = []
         self._cached_wrapped = []
+        self._page_offset = 0
+        self._total_lines = []
 
     def set_idle_screen(self):
-        """Draw idle screen with clock, date, battery, and wifi status."""
+        """Draw idle screen with clock, date, battery, wifi, and network info."""
         img = Image.new("RGB", (self._width, self._height), (0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         draw.rectangle((0, 0, self._width, ACCENT_BAR_HEIGHT), fill=(40, 40, 40))
 
-        self._draw_battery(draw)
+        # ── Top bar: WiFi + Battery ──
+        wifi_up = _wifi_connected()
+        signal = _wifi_signal()
 
-        # Wifi indicator (top-left)
-        if _wifi_connected():
+        # WiFi signal bars (top-left)
+        if wifi_up and signal is not None:
+            bars = min(4, signal // 25 + (1 if signal > 0 else 0))
+            bar_str = "\u2582" * bars + "\u2582" * (4 - bars)
+            bar_color = (0, 180, 80) if bars >= 2 else (255, 180, 0) if bars >= 1 else (180, 60, 60)
+            # Draw filled bars
+            x = self._pad_x
+            for i in range(4):
+                c = bar_color if i < bars else (50, 50, 50)
+                draw.text((x, self._pad_y), "\u2582", font=self._battery_font, fill=c)
+                x += self._battery_font.getlength("\u2582") + 1
+        elif wifi_up:
             draw.text((self._pad_x, self._pad_y), "\u25cf", font=self._battery_font, fill=(0, 180, 80))
         else:
             draw.text((self._pad_x, self._pad_y), "\u25cb", font=self._battery_font, fill=(180, 60, 60))
+
+        # Battery (top-right) — enhanced
+        pct, status = _read_battery()
+        if pct is not None:
+            if status == "Charging":
+                batt_label = f"\u26a1{pct}%"
+                batt_color = (0, 200, 80)
+            elif pct <= 15:
+                batt_label = f"{pct}%"
+                batt_color = (255, 60, 60)
+            elif pct <= 30:
+                batt_label = f"{pct}%"
+                batt_color = (255, 180, 0)
+            else:
+                batt_label = f"{pct}%"
+                batt_color = (120, 120, 120)
+        else:
+            batt_label = "\u2014"
+            batt_color = (80, 80, 80)
+        bw = self._battery_font.getlength(batt_label)
+        draw.text((self._width - bw - self._pad_x, self._pad_y), batt_label,
+                  font=self._battery_font, fill=batt_color)
 
         now = datetime.now()
 
@@ -721,18 +811,35 @@ class Display:
         time_str = now.strftime("%H:%M")
         tw = self._clock_font.getlength(time_str)
         tx = int((self._width - tw) / 2)
-        ty = int(self._height * 0.22)
+        ty = int(self._height * 0.20)
         draw.text((tx, ty), time_str, font=self._clock_font, fill=(220, 220, 220))
 
         # Date
-        date_str = now.strftime("%a, %b %d")
+        date_str = now.strftime("%A, %b %d")
         dw = self._status_sub_font.getlength(date_str)
         dx = int((self._width - dw) / 2)
         dy = ty + CLOCK_FONT_SIZE + 6
         draw.text((dx, dy), date_str, font=self._status_sub_font, fill=(100, 100, 100))
 
+        # ── Network info (middle section) ──
+        info_y = dy + STATUS_SUB_FONT_SIZE + 16
+        ssid = _wifi_ssid()
+        ip = _wifi_ip()
+
+        if ssid:
+            ssid_str = ssid
+            ssid_w = self._battery_font.getlength(ssid_str)
+            draw.text((int((self._width - ssid_w) / 2), info_y),
+                      ssid_str, font=self._battery_font, fill=(80, 80, 80))
+            info_y += BATTERY_FONT_SIZE + 4
+
+        if ip:
+            ip_w = self._battery_font.getlength(ip)
+            draw.text((int((self._width - ip_w) / 2), info_y),
+                      ip, font=self._battery_font, fill=(60, 60, 60))
+
         # Subtitle
-        sub = "Press button to talk"
+        sub = "Hold button to talk"
         sw = self._status_sub_font.getlength(sub)
         sx = int((self._width - sw) / 2)
         sy = self._height - STATUS_SUB_FONT_SIZE - self._pad_y
@@ -898,6 +1005,7 @@ class Display:
         self._response_buf = text
         self._cached_paragraphs = []
         self._cached_wrapped = []
+        self._page_offset = 0
         self._render_response(force=True)
 
     def append_response(self, delta: str):
@@ -954,6 +1062,7 @@ class Display:
 
         self._cached_paragraphs = new_cached_paras
         self._cached_wrapped = new_cached_wrapped
+        self._total_lines = list(all_lines)
 
         line_h = RESPONSE_FONT_SIZE + line_spacing
         max_visible = (content_bottom - content_top) // line_h
@@ -989,6 +1098,62 @@ class Display:
     def flush_response(self):
         """Force a final redraw of buffered response text."""
         self._render_response(force=True)
+
+    def scroll_next_page(self):
+        """Advance to next page of response text, wrapping to top."""
+        if not self._total_lines:
+            return
+        line_spacing = 4
+        content_top = self._pad_y + ACCENT_BAR_HEIGHT + 4
+        content_bottom = self._height - self._pad_y
+        line_h = RESPONSE_FONT_SIZE + line_spacing
+        max_visible = (content_bottom - content_top) // line_h
+        total_pages = max(1, -(-len(self._total_lines) // max_visible))
+        self._page_offset = (self._page_offset + 1) % total_pages
+        self._render_response_paged()
+
+    def _render_response_paged(self):
+        """Render a specific page of the stored response."""
+        img = Image.new("RGB", (self._width, self._height), (0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle((0, 0, self._width, ACCENT_BAR_HEIGHT), fill=(0, 160, 80))
+
+        line_spacing = 4
+        content_top = self._pad_y + ACCENT_BAR_HEIGHT + 4
+        content_bottom = self._height - self._pad_y
+        line_h = RESPONSE_FONT_SIZE + line_spacing
+        max_visible = (content_bottom - content_top) // line_h
+
+        start = self._page_offset * max_visible
+        page_lines = self._total_lines[start:start + max_visible]
+
+        text_color = (230, 235, 240)
+        y = content_top
+        for line in page_lines:
+            if not line:
+                y += line_h // 2
+                continue
+            self._draw_mixed(
+                draw, (self._pad_x, y), line,
+                self._response_font, self._emoji_response, text_color,
+                max_x=self._width - self._pad_x,
+            )
+            y += line_h
+
+        # Page indicator
+        total_pages = max(1, -(-len(self._total_lines) // max_visible))
+        if total_pages > 1:
+            indicator = f"{self._page_offset + 1}/{total_pages}"
+            iw = self._battery_font.getlength(indicator)
+            draw.text(
+                (self._width - iw - self._pad_x, content_bottom - BATTERY_FONT_SIZE - 2),
+                indicator, font=self._battery_font, fill=(100, 100, 100),
+            )
+
+        self._draw_battery(draw)
+        self._draw(img)
+
+
 
     def update_text(self, text: str):
         """Legacy: draw centred text."""

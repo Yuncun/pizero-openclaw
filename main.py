@@ -39,6 +39,8 @@ class Assistant:
             cancel_allowed_cb=lambda: (time.monotonic() - self._state_entered_at) >= 2.0,
             on_any_press_cb=self._touch,
             on_abort_listening_cb=self._on_abort_listening,
+            on_tap_cb=self._on_tap,
+            is_sleeping_cb=lambda: self.display.is_sleeping,
         )
         self._worker_thread: threading.Thread | None = None
         self._shutdown = threading.Event()
@@ -79,6 +81,12 @@ class Assistant:
         self.display.stop_character()
         self._go_idle()
         log.info("abort listening -- back to Ready")
+
+    def _on_tap(self):
+        """Tap while viewing response: scroll to next page (wraps around)."""
+        self._touch()
+        self.display.scroll_next_page()
+        log.info("tap -- scroll next page")
 
     def _on_button_press(self):
         self._touch()
@@ -225,7 +233,8 @@ class Assistant:
         else:
             self.display.flush_response()
 
-        log.info("response complete -- holding on screen")
+        self.ptt.state = State.RESPONSE
+        log.info("response complete -- holding on screen (tap to scroll)")
 
         # Update conversation history
         self._conversation_history.append({"role": "user", "content": transcript})
