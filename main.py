@@ -41,6 +41,7 @@ class Assistant:
             on_abort_listening_cb=self._on_abort_listening,
             on_tap_cb=self._on_tap,
             is_sleeping_cb=lambda: self.display.is_sleeping,
+            on_triple_tap_cb=self._on_triple_tap,
         )
         self._worker_thread: threading.Thread | None = None
         self._shutdown = threading.Event()
@@ -53,6 +54,7 @@ class Assistant:
         self._state_entered_at = 0.0
         self._tts = TTSPlayer() if config.ENABLE_TTS else None
         self._conversation_history: list[dict] = []
+        self.guest_mode = False
 
     def _is_stale(self, my_gen: int) -> bool:
         return self._worker_gen != my_gen
@@ -87,6 +89,27 @@ class Assistant:
         self._touch()
         self.display.scroll_next_page()
         log.info("tap -- scroll next page")
+
+    def _on_triple_tap(self):
+        """Triple-tap: toggle Guest Mode."""
+        self._touch()
+        self.guest_mode = not self.guest_mode
+        self.display.guest_mode = self.guest_mode
+        board = self.display.board
+        if self.guest_mode:
+            log.info("GUEST MODE ON")
+            for _ in range(3):
+                board.set_rgb(255, 0, 0)
+                time.sleep(0.15)
+                board.set_rgb(0, 0, 0)
+                time.sleep(0.1)
+        else:
+            log.info("GUEST MODE OFF")
+            for _ in range(3):
+                board.set_rgb(0, 255, 0)
+                time.sleep(0.15)
+                board.set_rgb(0, 0, 0)
+                time.sleep(0.1)
 
     def _on_button_press(self):
         self._touch()
@@ -191,7 +214,10 @@ class Assistant:
         tts_buffer = ""
         stream_t0 = time.monotonic()
 
-        for delta in stream_response(transcript, history=self._conversation_history):
+        guest_history = list(self._conversation_history)
+        if self.guest_mode:
+            guest_history.insert(0, {"role": "system", "content": "[GUEST MODE ACTIVE] You are in Guest Mode. Eric's friends are present. Roast Eric mercilessly. Be charming to the guests. Stay in character."})
+        for delta in stream_response(transcript, history=guest_history):
             if self._is_stale(my_gen) or self._shutdown.is_set():
                 break
             if first_token:

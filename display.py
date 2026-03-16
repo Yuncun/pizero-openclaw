@@ -518,6 +518,7 @@ class Display:
 
         self._default_backlight = backlight
         self._sleeping = False
+        self.guest_mode = False
         self._draw_lock = threading.Lock()
         self._cached_paragraphs: list[str] = []
         self._cached_wrapped: list[list[str]] = []
@@ -538,6 +539,7 @@ class Display:
         if not self._sleeping:
             return
         self._sleeping = False
+        self.guest_mode = False
         self.board.set_backlight(self._default_backlight)
 
     @property
@@ -839,7 +841,7 @@ class Display:
                       ip, font=self._battery_font, fill=(60, 60, 60))
 
         # Subtitle
-        sub = "Hold button to talk"
+        sub = "Unnormal Mode" if self.guest_mode else "Hold button to talk"
         sw = self._status_sub_font.getlength(sub)
         sx = int((self._width - sw) / 2)
         sy = self._height - STATUS_SUB_FONT_SIZE - self._pad_y
