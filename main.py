@@ -56,6 +56,7 @@ class Assistant:
         self._tts = TTSPlayer() if config.ENABLE_TTS else None
         self._conversation_history: list[dict] = []
         self.guest_mode = False
+        self._pre_guest_history: list[dict] = []
         self._normal_tts_instructions = config.OPENAI_TTS_INSTRUCTIONS
         self.silent_mode = False
 
@@ -123,6 +124,7 @@ class Assistant:
         board = self.display.board
         if self.guest_mode:
             log.info("GUEST MODE ON")
+            self._pre_guest_history = list(self._conversation_history)
             config.OPENAI_TTS_INSTRUCTIONS = "Speak in an exasperated, deadpan, long-suffering tone. You sound like someone who has completely given up on this person but is too polite to leave. Dry, flat delivery with occasional sighs."
             for _ in range(3):
                 board.set_rgb(255, 0, 0)
@@ -131,6 +133,8 @@ class Assistant:
                 time.sleep(0.1)
         else:
             log.info("GUEST MODE OFF")
+            self._conversation_history = self._pre_guest_history
+            self._pre_guest_history = []
             config.OPENAI_TTS_INSTRUCTIONS = self._normal_tts_instructions
             for _ in range(3):
                 board.set_rgb(0, 255, 0)
