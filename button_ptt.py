@@ -34,7 +34,7 @@ class ButtonPTT:
     def __init__(self, board, on_press_cb=None, on_release_cb=None, on_cancel_cb=None,
                  cancel_allowed_cb=None, on_any_press_cb=None, on_abort_listening_cb=None,
                  on_tap_cb=None, is_sleeping_cb=None,
-                 on_triple_tap_cb=None, on_quad_tap_cb=None):
+                 on_triple_tap_cb=None, on_quad_tap_cb=None, on_show_transcript_cb=None):
         self._board = board
         self._on_press = on_press_cb
         self._on_release = on_release_cb
@@ -46,6 +46,7 @@ class ButtonPTT:
         self._is_sleeping = is_sleeping_cb
         self._on_triple_tap = on_triple_tap_cb
         self._on_quad_tap = on_quad_tap_cb
+        self._on_show_transcript = on_show_transcript_cb
         self._state = State.IDLE
         self._lock = threading.Lock()
         self._press_time = 0.0
@@ -145,14 +146,20 @@ class ButtonPTT:
             self._update_led(State.IDLE)
             return
 
-        # Active operation (transcribing/thinking/streaming): cancel and return to idle.
-        if self._state in (State.TRANSCRIBING, State.THINKING, State.STREAMING):
+        # Transcribing/thinking: cancel and return to idle.
+        if self._state in (State.TRANSCRIBING, State.THINKING):
             if self._cancel_allowed and not self._cancel_allowed():
                 return
             self._state = State.IDLE
             self._update_led(State.IDLE)
             if self._on_cancel:
                 self._on_cancel()
+            return
+
+        # Streaming: show transcript (switch to RESPONSE), keep audio playing.
+        if self._state == State.STREAMING:
+            if self._on_show_transcript:
+                self._on_show_transcript()
             return
 
         if self._state not in (State.IDLE, State.ERROR):

@@ -43,6 +43,7 @@ class Assistant:
             is_sleeping_cb=lambda: self.display.is_sleeping,
             on_triple_tap_cb=self._on_triple_tap,
             on_quad_tap_cb=self._on_quad_tap,
+            on_show_transcript_cb=self._on_show_transcript,
         )
         self._worker_thread: threading.Thread | None = None
         self._shutdown = threading.Event()
@@ -59,6 +60,8 @@ class Assistant:
         self._pre_guest_history: list[dict] = []
         self._normal_tts_instructions = config.OPENAI_TTS_INSTRUCTIONS
         self.silent_mode = False
+        self._streaming_text = ""
+        self._streaming_text = ''
 
     def _is_stale(self, my_gen: int) -> bool:
         return self._worker_gen != my_gen
@@ -160,6 +163,18 @@ class Assistant:
                 time.sleep(0.1)
         self._go_idle()
 
+    def _on_show_transcript(self):
+        """Button press during streaming: show transcript text, keep audio playing."""
+        self._touch()
+        self.display.stop_character()
+        self.display.stop_spinner()
+        # Show whatever text we have so far
+        current_text = getattr(self, '_streaming_text', '')
+        if current_text:
+            self.display.set_response_text(current_text)
+        self.ptt.state = State.RESPONSE
+        log.info("show transcript (streaming continues in background)")
+
     def _on_button_press(self):
         self._touch()
         self._dismiss.set()
@@ -260,6 +275,7 @@ class Assistant:
         self.ptt.state = State.STREAMING
         first_token = True
         full_response = ""
+        self._streaming_text = ""
         tts_buffer = ""
         stream_t0 = time.monotonic()
 
@@ -278,7 +294,8 @@ class Assistant:
                     self.display.set_response_text("")
                 first_token = False
             full_response += delta
-            if not self._tts:
+            self._streaming_text = full_response
+            if not self._tts or self.ptt.state == State.RESPONSE:
                 self.display.append_response(delta)
 
             # Streaming TTS: batch 2–3 sentences for natural flow
