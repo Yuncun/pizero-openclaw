@@ -125,7 +125,7 @@ class Assistant:
         if self.guest_mode:
             log.info("GUEST MODE ON")
             self._pre_guest_history = list(self._conversation_history)
-            config.OPENAI_TTS_INSTRUCTIONS = "Speak in an exasperated, deadpan, long-suffering tone. You sound like someone who has completely given up on this person but is too polite to leave. Dry, flat delivery with occasional sighs."
+            config.OPENAI_TTS_INSTRUCTIONS = "Speak like a fast-talking, exasperated valley girl who literally cannot even with this guy. Quick pace, lots of vocal fry, dramatic emphasis on certain words. Eye-roll energy. Like you are SO done explaining things to him but you keep doing it anyway because someone has to. Throw in ughs, sighs, and like before every other sentence."
             for _ in range(3):
                 board.set_rgb(255, 0, 0)
                 time.sleep(0.15)
