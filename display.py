@@ -843,7 +843,7 @@ class Display:
                       ip, font=self._battery_font, fill=(60, 60, 60))
 
         # Subtitle
-        sub = "Unnormal Mode" if self.guest_mode else "Silent Mode" if self.silent_mode else "Hold button to talk"
+        sub = "claudi-ugh" if self.guest_mode else "helen" if self.silent_mode else "claudia"
         sw = self._status_sub_font.getlength(sub)
         sx = int((self._width - sw) / 2)
         sy = self._height - STATUS_SUB_FONT_SIZE - self._pad_y
