@@ -42,6 +42,7 @@ class Assistant:
             on_tap_cb=self._on_tap,
             is_sleeping_cb=lambda: self.display.is_sleeping,
             on_triple_tap_cb=self._on_triple_tap,
+            on_quad_tap_cb=self._on_quad_tap,
         )
         self._worker_thread: threading.Thread | None = None
         self._shutdown = threading.Event()
@@ -55,6 +56,7 @@ class Assistant:
         self._tts = TTSPlayer() if config.ENABLE_TTS else None
         self._conversation_history: list[dict] = []
         self.guest_mode = False
+        self.silent_mode = False
 
     def _is_stale(self, my_gen: int) -> bool:
         return self._worker_gen != my_gen
@@ -91,7 +93,29 @@ class Assistant:
         log.info("tap -- scroll next page")
 
     def _on_triple_tap(self):
-        """Triple-tap: toggle Guest Mode."""
+        """Triple-tap: toggle Silent Mode (mute TTS)."""
+        self._touch()
+        self.silent_mode = not self.silent_mode
+        self.display.silent_mode = self.silent_mode
+        board = self.display.board
+        if self.silent_mode:
+            log.info("SILENT MODE ON")
+            for _ in range(3):
+                board.set_rgb(0, 0, 255)
+                time.sleep(0.15)
+                board.set_rgb(0, 0, 0)
+                time.sleep(0.1)
+        else:
+            log.info("SILENT MODE OFF")
+            for _ in range(3):
+                board.set_rgb(0, 255, 0)
+                time.sleep(0.15)
+                board.set_rgb(0, 0, 0)
+                time.sleep(0.1)
+        self._go_idle()
+
+    def _on_quad_tap(self):
+        """Quad-tap: toggle Guest Mode (roast Eric)."""
         self._touch()
         self.guest_mode = not self.guest_mode
         self.display.guest_mode = self.guest_mode
@@ -110,6 +134,7 @@ class Assistant:
                 time.sleep(0.15)
                 board.set_rgb(0, 0, 0)
                 time.sleep(0.1)
+        self._go_idle()
 
     def _on_button_press(self):
         self._touch()
@@ -241,7 +266,8 @@ class Assistant:
                     chunk = tts_buffer[:cut].strip()
                     tts_buffer = tts_buffer[cut:]
                     if chunk:
-                        self._tts.submit(chunk)
+                        if not self.silent_mode:
+                            self._tts.submit(chunk)
 
         # Stale worker: exit without touching display, TTS, or history
         if self._is_stale(my_gen):
@@ -252,8 +278,10 @@ class Assistant:
         # Submit remaining TTS buffer and wait for playback to finish
         if self._tts:
             if tts_buffer.strip():
-                self._tts.submit(tts_buffer.strip())
-            self._tts.flush()
+                if not self.silent_mode:
+                    self._tts.submit(tts_buffer.strip())
+            if not self.silent_mode:
+                self._tts.flush()
             self.display.stop_character()
             self.display.set_response_text(full_response)
         else:

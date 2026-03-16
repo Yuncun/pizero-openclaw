@@ -24,7 +24,8 @@ STATE_COLORS = {
 }
 
 _TAP_THRESHOLD = 0.4
-_TRIPLE_TAP_WINDOW = 1.0  # 3 taps within 1 second
+_MULTI_TAP_WINDOW = 1.2  # wait up to 1.2s for additional taps
+_MULTI_TAP_SETTLE = 0.45  # after last tap, wait this long before deciding
 
 
 class ButtonPTT:
@@ -32,7 +33,8 @@ class ButtonPTT:
 
     def __init__(self, board, on_press_cb=None, on_release_cb=None, on_cancel_cb=None,
                  cancel_allowed_cb=None, on_any_press_cb=None, on_abort_listening_cb=None,
-                 on_tap_cb=None, is_sleeping_cb=None, on_triple_tap_cb=None):
+                 on_tap_cb=None, is_sleeping_cb=None,
+                 on_triple_tap_cb=None, on_quad_tap_cb=None):
         self._board = board
         self._on_press = on_press_cb
         self._on_release = on_release_cb
@@ -43,12 +45,15 @@ class ButtonPTT:
         self._cancel_allowed = cancel_allowed_cb
         self._is_sleeping = is_sleeping_cb
         self._on_triple_tap = on_triple_tap_cb
+        self._on_quad_tap = on_quad_tap_cb
         self._state = State.IDLE
         self._lock = threading.Lock()
         self._press_time = 0.0
         self._tap_timer = None
         self._idle_hold_timer = None
-        self._tap_times: list[float] = []
+        self._tap_count = 0
+        self._tap_settle_timer = None
+        self._first_tap_time = 0.0
 
         board.on_button_press(self._handle_press)
         board.on_button_release(self._handle_release)
@@ -72,15 +77,45 @@ class ButtonPTT:
         except AttributeError:
             pass
 
-    def _record_tap(self) -> bool:
-        """Record a tap. Returns True if triple-tap detected."""
+    def _record_tap(self):
+        """Record a tap and schedule settle timer to fire the appropriate callback."""
         now = time.monotonic()
-        self._tap_times.append(now)
-        self._tap_times = [t for t in self._tap_times if now - t <= _TRIPLE_TAP_WINDOW]
-        if len(self._tap_times) >= 3:
-            self._tap_times.clear()
-            return True
-        return False
+        # Reset if too long since first tap
+        if self._tap_count > 0 and now - self._first_tap_time > _MULTI_TAP_WINDOW:
+            self._tap_count = 0
+        if self._tap_count == 0:
+            self._first_tap_time = now
+        self._tap_count += 1
+
+        # Cancel previous settle timer
+        if self._tap_settle_timer is not None:
+            self._tap_settle_timer.cancel()
+
+        # If we hit 4, fire immediately (max combo)
+        if self._tap_count >= 4:
+            count = self._tap_count
+            self._tap_count = 0
+            self._tap_settle_timer = None
+            self._fire_multi_tap(count)
+            return
+
+        # Otherwise wait for more taps
+        self._tap_settle_timer = threading.Timer(_MULTI_TAP_SETTLE, self._settle_taps)
+        self._tap_settle_timer.start()
+
+    def _settle_taps(self):
+        """Called after no more taps arrive — fire based on count."""
+        count = self._tap_count
+        self._tap_count = 0
+        self._tap_settle_timer = None
+        if count >= 3:
+            self._fire_multi_tap(count)
+
+    def _fire_multi_tap(self, count):
+        if count == 3 and self._on_triple_tap:
+            self._on_triple_tap()
+        elif count >= 4 and self._on_quad_tap:
+            self._on_quad_tap()
 
     def _handle_press(self):
         self._press_time = time.monotonic()
@@ -123,7 +158,7 @@ class ButtonPTT:
         if self._state not in (State.IDLE, State.ERROR):
             return
 
-        # IDLE/ERROR: delay to allow triple-tap detection
+        # IDLE/ERROR: delay to allow multi-tap detection
         self._idle_hold_timer = threading.Timer(_TAP_THRESHOLD, self._idle_hold_fired)
         self._idle_hold_timer.start()
 
@@ -152,9 +187,7 @@ class ButtonPTT:
             self._idle_hold_timer.cancel()
             self._idle_hold_timer = None
             if press_duration < _TAP_THRESHOLD and self._state in (State.IDLE, State.ERROR):
-                if self._record_tap():
-                    if self._on_triple_tap:
-                        self._on_triple_tap()
+                self._record_tap()
                 return
 
         # Cancel any pending response tap timer
@@ -162,9 +195,8 @@ class ButtonPTT:
             self._tap_timer.cancel()
             self._tap_timer = None
             if self._state == State.RESPONSE:
-                if press_duration < _TAP_THRESHOLD and self._record_tap():
-                    if self._on_triple_tap:
-                        self._on_triple_tap()
+                if press_duration < _TAP_THRESHOLD:
+                    self._record_tap()
                     return
                 if self._on_tap:
                     self._on_tap()
