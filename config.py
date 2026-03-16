@@ -22,6 +22,7 @@ OPENAI_TTS_INSTRUCTIONS = os.environ.get(
 
 OPENCLAW_BASE_URL = os.environ.get("OPENCLAW_BASE_URL", "http://localhost:18789")
 OPENCLAW_TOKEN = os.environ.get("OPENCLAW_TOKEN", "")
+OPENCLAW_AGENT_ID = os.environ.get("OPENCLAW_AGENT_ID", "claudia")
 
 AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "plughw:1,0")
 AUDIO_OUTPUT_DEVICE = os.environ.get("AUDIO_OUTPUT_DEVICE", "default")
