@@ -187,12 +187,12 @@ class ButtonPTT:
                 self._on_press()
 
     def _response_hold_fired(self):
-        """Called 400ms after press in RESPONSE state — transition to push-to-talk."""
+        """Called 400ms after press in RESPONSE state — dismiss + cancel TTS."""
         if self._state == State.RESPONSE:
-            self._state = State.LISTENING
-            self._update_led(State.LISTENING)
-            if self._on_press:
-                self._on_press()
+            self._state = State.IDLE
+            self._update_led(State.IDLE)
+            if self._on_cancel:
+                self._on_cancel()
 
     def _handle_release(self):
         press_duration = time.monotonic() - self._press_time
