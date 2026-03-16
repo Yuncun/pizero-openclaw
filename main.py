@@ -94,50 +94,67 @@ class Assistant:
         self.display.scroll_next_page()
         log.info("tap -- scroll next page")
 
+    def _clear_modes(self):
+        """Reset all modes to normal (claudia)."""
+        if self.guest_mode:
+            self.guest_mode = False
+            self.display.guest_mode = False
+            self._conversation_history = self._pre_guest_history
+            self._pre_guest_history = []
+            config.OPENAI_TTS_INSTRUCTIONS = self._normal_tts_instructions
+        if self.silent_mode:
+            self.silent_mode = False
+            self.display.silent_mode = False
+
     def _on_triple_tap(self):
-        """Triple-tap: toggle Silent Mode (mute TTS)."""
+        """Triple-tap: toggle Silent Mode (mute TTS). Turns off guest mode if active."""
         self._touch()
-        self.silent_mode = not self.silent_mode
-        self.display.silent_mode = self.silent_mode
         board = self.display.board
         if self.silent_mode:
-            log.info("SILENT MODE ON")
+            # Already in silent — turn it off, back to claudia
+            self._clear_modes()
+            log.info("SILENT MODE OFF -> claudia")
             for _ in range(3):
-                board.set_rgb(0, 0, 255)
+                board.set_rgb(0, 255, 0)
                 time.sleep(0.15)
                 board.set_rgb(0, 0, 0)
                 time.sleep(0.1)
         else:
-            log.info("SILENT MODE OFF")
+            # Enter silent — clear any other mode first
+            self._clear_modes()
+            self.silent_mode = True
+            self.display.silent_mode = True
+            log.info("SILENT MODE ON (helen)")
             for _ in range(3):
-                board.set_rgb(0, 255, 0)
+                board.set_rgb(0, 0, 255)
                 time.sleep(0.15)
                 board.set_rgb(0, 0, 0)
                 time.sleep(0.1)
         self._go_idle()
 
     def _on_quad_tap(self):
-        """Quad-tap: toggle Guest Mode (roast Eric)."""
+        """Quad-tap: toggle Guest Mode (roast Eric). Turns off silent mode if active."""
         self._touch()
-        self.guest_mode = not self.guest_mode
-        self.display.guest_mode = self.guest_mode
         board = self.display.board
         if self.guest_mode:
-            log.info("GUEST MODE ON")
-            self._pre_guest_history = list(self._conversation_history)
-            config.OPENAI_TTS_INSTRUCTIONS = "Speak like a fast-talking, exasperated valley girl who literally cannot even with this guy. Quick pace, lots of vocal fry, dramatic emphasis on certain words. Eye-roll energy. Like you are SO done explaining things to him but you keep doing it anyway because someone has to. Throw in ughs, sighs, and like before every other sentence."
+            # Already in guest — turn it off, back to claudia
+            self._clear_modes()
+            log.info("GUEST MODE OFF -> claudia")
             for _ in range(3):
-                board.set_rgb(255, 0, 0)
+                board.set_rgb(0, 255, 0)
                 time.sleep(0.15)
                 board.set_rgb(0, 0, 0)
                 time.sleep(0.1)
         else:
-            log.info("GUEST MODE OFF")
-            self._conversation_history = self._pre_guest_history
-            self._pre_guest_history = []
-            config.OPENAI_TTS_INSTRUCTIONS = self._normal_tts_instructions
+            # Enter guest — clear any other mode first
+            self._clear_modes()
+            self.guest_mode = True
+            self.display.guest_mode = True
+            self._pre_guest_history = list(self._conversation_history)
+            config.OPENAI_TTS_INSTRUCTIONS = "Speak like a fast-talking, exasperated valley girl who literally cannot even with this guy. Quick pace, lots of vocal fry, dramatic emphasis on certain words. Eye-roll energy. Like you are SO done explaining things to him but you keep doing it anyway because someone has to. Throw in ughs, sighs, and like before every other sentence."
+            log.info("GUEST MODE ON (claudi-ugh)")
             for _ in range(3):
-                board.set_rgb(0, 255, 0)
+                board.set_rgb(255, 0, 0)
                 time.sleep(0.15)
                 board.set_rgb(0, 0, 0)
                 time.sleep(0.1)
