@@ -111,6 +111,14 @@ class ButtonPTT:
         self._tap_settle_timer = None
         if count >= 3:
             self._fire_multi_tap(count)
+        elif count == 2 and self._state == State.RESPONSE:
+            # Double-tap in RESPONSE: dismiss + cancel TTS
+            if self._on_cancel:
+                self._on_cancel()
+        elif count == 1 and self._state == State.RESPONSE:
+            # Single tap in RESPONSE: scroll
+            if self._on_tap:
+                self._on_tap()
 
     def _fire_multi_tap(self, count):
         if count == 3 and self._on_triple_tap:

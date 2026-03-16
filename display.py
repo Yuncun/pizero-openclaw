@@ -809,6 +809,26 @@ class Display:
         draw.text((self._width - bw - self._pad_x, self._pad_y), batt_label,
                   font=self._battery_font, fill=batt_color)
 
+        # Volume indicator (top bar center)
+        try:
+            import subprocess as _sp
+            _vol_out = _sp.check_output(
+                ["amixer", "-c", "1", "sget", "Speaker"],
+                stderr=_sp.DEVNULL, timeout=2
+            ).decode()
+            import re as _re
+            _vol_match = _re.search(r"\[(\d+)%\]", _vol_out)
+            vol_pct = int(_vol_match.group(1)) if _vol_match else None
+        except Exception:
+            vol_pct = None
+        if vol_pct is not None:
+            vol_icon = "🔊" if vol_pct >= 50 else "🔉" if vol_pct > 0 else "🔇"
+            vol_label = f"{vol_pct}%"
+            vol_w = self._battery_font.getlength(vol_label)
+            vol_x = int((self._width - vol_w) / 2)
+            vol_color = (120, 120, 120) if vol_pct > 20 else (255, 180, 0) if vol_pct > 0 else (255, 60, 60)
+            draw.text((vol_x, self._pad_y), vol_label, font=self._battery_font, fill=vol_color)
+
         now = datetime.now()
 
         # Large clock
